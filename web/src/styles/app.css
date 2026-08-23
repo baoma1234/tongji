@@ -1,0 +1,61 @@
+:root {
+  --acc-bg: #f3f6f5;
+  --acc-ink: #12352f;
+  --acc-muted: #5b736e;
+  --acc-brand: #0f766e;
+  --acc-brand-2: #14b8a6;
+  --acc-card: #ffffff;
+  --acc-line: #d7e3df;
+  --acc-danger: #dc2626;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--acc-ink);
+  background: var(--acc-bg);
+  line-height: 1.45;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(20, 184, 166, 0.18), transparent 60%),
+    radial-gradient(900px 420px at 100% 0%, rgba(15, 118, 110, 0.12), transparent 55%),
+    var(--acc-bg);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.acc-page {
+  min-height: 100vh;
+}
+
+.acc-shell {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px 16px 96px;
+}
+
+.acc-card {
+  background: var(--acc-card);
+  border: 1px solid var(--acc-line);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(18, 53, 47, 0.04);
+}
+
+.acc-muted {
+  color: var(--acc-muted);
+}

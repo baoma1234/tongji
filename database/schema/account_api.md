@@ -1,5 +1,7 @@
 # 记账 API 速查
 
+前端入口: `/account/`（Vue3 + Element Plus）
+
 Base: `/api/account.xxx/action`  
 鉴权头: `token: <登录返回的 token>` 或参数 `token=`
 
@@ -27,8 +29,8 @@ Base: `/api/account.xxx/action`
 }
 ```
 
-- `items` ≤ 100：同步事务写入当月分表  
-- `items` > 100 或 `async=1`：入 Redis List，CLI 消费：  
+- `items` ≤ 100：同步事务写入当月分表
+- `items` > 100 或 `async=1`：入 Redis List，CLI 消费：
   `php think account:bill-consume --max=100 --loop=1`
 
 ## Redis Key
