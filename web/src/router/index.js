@@ -18,6 +18,11 @@ const routes = [
     name: 'bills',
     component: () => import('@/views/BillsView.vue'),
   },
+  {
+    path: '/settle',
+    name: 'settle',
+    component: () => import('@/views/SettleView.vue'),
+  },
 ]
 
 const router = createRouter({

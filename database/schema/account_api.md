@@ -15,6 +15,8 @@ Base: `/api/account.xxx/action`
 | POST | `/api/account.price/set` | `param_id, price` 设专属单价 |
 | POST | `/api/account.bill/batch` | 批量入账（事务/异步） |
 | GET  | `/api/account.bill/index` | 我的账单 `bill_ym,page,limit` |
+| POST | `/api/account.settle/calc` | 开奖结算：`numbers` 7个号 + `bill_date` |
+| GET  | `/api/account.settle/zodiac` | 查询号码生肖 `num,date` |
 
 ## 批量入账 body 示例
 

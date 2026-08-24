@@ -104,6 +104,14 @@ export function apiBills(params) {
   return http.get('/account.bill/index', { params })
 }
 
+export function apiSettle(payload) {
+  return http.post('/account.settle/calc', payload)
+}
+
+export function apiZodiac(num, date) {
+  return http.get('/account.settle/zodiac', { params: { num, date } })
+}
+
 export function toastError(e) {
   ElMessage.error(e?.message || String(e))
 }

@@ -7,6 +7,7 @@
           <div class="acc-muted user">{{ user?.nickname || '未命名' }} · {{ user?.access_code }}</div>
         </div>
         <div class="actions">
+          <el-button text @click="$router.push('/settle')">开奖结算</el-button>
           <el-button text @click="$router.push('/bills')">流水</el-button>
           <el-button text type="danger" @click="onLogout">退出</el-button>
         </div>

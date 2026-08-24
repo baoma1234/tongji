@@ -23,4 +23,6 @@ return [
     'idempotent_ttl'  => 86400,
     'login_fail_max'  => 10,
     'auto_register'   => true,
+    // 生肖年强制覆盖（空则按农历新年自动算），如 '马'
+    'zodiac_year'     => '',
 ];
