@@ -33,6 +33,22 @@ Base: `/api/account.xxx/action`
 - `items` > 100 或 `async=1`：入 Redis List，CLI 消费：
   `php think account:bill-consume --max=100 --loop=1`
 
+## 运维命令
+
+- 预创建当前月和下月分表：
+  `php think account:bill-prepare --months=2`
+- 从指定账期开始预建 6 个月：
+  `php think account:bill-prepare --start=202609 --months=6`
+- 持续消费异步入账队列：
+  `php think account:bill-consume --max=200 --loop=1 --sleep=1`
+
+## 生产建议
+
+- 定时任务：每月 25~28 日执行一次 `account:bill-prepare --months=2`
+- 常驻进程：Supervisor / Windows 任务计划常驻 `account:bill-consume`
+- 队列失败 3 次后进入死信 Key：`account:queue:bill:dead`
+- 大批量导入优先走异步，避免 Web 请求占满 PHP-FPM/Apache Worker
+
 ## Redis Key
 
 - `account:param:list:{category_id}`

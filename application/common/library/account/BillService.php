@@ -12,6 +12,31 @@ use think\Exception;
 class BillService
 {
     /**
+     * 生成连续月份列表
+     * @param int      $count  月份数量
+     * @param int|null $startYm 起始月份，默认当前月
+     * @return array
+     */
+    public static function buildMonthSeries($count = 2, $startYm = null)
+    {
+        $count = max(1, (int)$count);
+        $base = $startYm ? \DateTime::createFromFormat('Ym', (string)$startYm) : new \DateTime(date('Y-m-01'));
+        if (!$base) {
+            $base = new \DateTime(date('Y-m-01'));
+        }
+        $base->setDate((int)$base->format('Y'), (int)$base->format('m'), 1);
+        $months = [];
+        for ($i = 0; $i < $count; $i++) {
+            $cursor = clone $base;
+            if ($i > 0) {
+                $cursor->modify('+' . $i . ' month');
+            }
+            $months[] = (int)$cursor->format('Ym');
+        }
+        return $months;
+    }
+
+    /**
      * 物理表名（含前缀由 Db::name 处理，这里返回无前缀名）
      * @param int|null $ym YYYYMM
      * @return string
@@ -36,6 +61,25 @@ class BillService
             $tpl = $prefix . 'acc_bill';
             Db::execute("CREATE TABLE `{$table}` LIKE `{$tpl}`");
         }
+    }
+
+    /**
+     * 批量确保多个月分表存在
+     * @param array $months
+     * @return array
+     */
+    public static function ensureMonthTables(array $months)
+    {
+        $done = [];
+        foreach ($months as $ym) {
+            $ym = (int)$ym;
+            if ($ym <= 0) {
+                continue;
+            }
+            self::ensureMonthTable($ym);
+            $done[] = $ym;
+        }
+        return $done;
     }
 
     /**
