@@ -147,12 +147,38 @@
           class="submit-btn"
           :loading="submitting"
           :disabled="!selectedIds.size"
-          @click="debouncedSubmit"
+          @click="debouncedOpenConfirm"
         >
           批量入账
         </el-button>
       </div>
     </footer>
+
+    <el-dialog
+      v-model="confirmVisible"
+      title="核对入账"
+      width="420px"
+      class="confirm-dialog"
+    >
+      <div class="confirm-meta">
+        <div>种类：<b>{{ currentCategory?.name || '-' }}</b></div>
+        <div>已选：<b>{{ confirmPreview.labels.join('、') || '-' }}</b></div>
+        <div>合计：<b class="win">¥{{ confirmPreview.total.toFixed(2) }}</b></div>
+      </div>
+      <div class="confirm-list">
+        <div v-for="row in confirmPreview.rows" :key="row.id" class="confirm-row">
+          <span class="c-name">{{ row.label }}</span>
+          <span class="c-odds">赔率 {{ formatOdds(row.price) }}</span>
+          <span class="c-stake">¥{{ Number(row.stake).toFixed(2) }}</span>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="confirmVisible = false">返回修改</el-button>
+        <el-button type="primary" :loading="submitting" @click="doSubmitBatch">
+          确认入账
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="priceVisible"
@@ -235,6 +261,8 @@ const editingPrice = ref(0)
 const savingPrice = ref(false)
 const oddsMode = ref(false)
 const batchPriceMode = ref(false)
+const confirmVisible = ref(false)
+const pendingItems = shallowRef([])
 
 const currentCategory = computed(() =>
   categories.value.find((c) => Number(c.id) === Number(categoryId.value)) || null,
@@ -271,6 +299,30 @@ const totalStake = computed(() => {
     if (Number.isFinite(v) && v > 0) sum += v
   }
   return sum
+})
+
+const confirmPreview = computed(() => {
+  const map = new Map(params.value.map((p) => [p.id, p]))
+  const rows = []
+  let total = 0
+  for (const id of selectedIds.value) {
+    const p = map.get(id)
+    if (!p) continue
+    const stake = Number(stakes[id]) || 0
+    total += stake
+    rows.push({
+      id,
+      label: isZodiac.value ? p.name : p.label,
+      price: p.price,
+      stake,
+    })
+  }
+  rows.sort((a, b) => String(a.label).localeCompare(String(b.label), 'zh'))
+  return {
+    rows,
+    total,
+    labels: rows.map((r) => r.label),
+  }
 })
 
 function ballColor(num) {
@@ -474,7 +526,7 @@ async function savePrice() {
   }
 }
 
-async function submitBatch() {
+function openConfirmSubmit() {
   if (submitting.value) return
   if (!selectedIds.value.size) {
     ElMessage.warning('请先选号并填写下注金额')
@@ -490,6 +542,17 @@ async function submitBatch() {
     }
     items.push({ param_id, quantity: String(qty) })
   }
+  pendingItems.value = items
+  confirmVisible.value = true
+}
+
+async function doSubmitBatch() {
+  if (submitting.value) return
+  const items = pendingItems.value
+  if (!items.length) {
+    ElMessage.warning('没有可提交的项目')
+    return
+  }
 
   submitting.value = true
   try {
@@ -497,6 +560,7 @@ async function submitBatch() {
       (crypto.randomUUID && crypto.randomUUID()) ||
       `web_${Date.now()}_${Math.random().toString(16).slice(2)}`
 
+    const total = confirmPreview.value.total
     const res = await apiBatchBill({
       category_id: categoryId.value,
       quantity: '1',
@@ -505,13 +569,15 @@ async function submitBatch() {
       remark: '',
     })
 
+    confirmVisible.value = false
     if (res.mode === 'async') {
       ElMessage.success(`已排队异步入账 ${res.queued} 条`)
     } else {
-      ElMessage.success(`入账成功 ${res.inserted} 条，合计 ¥${totalStake.value.toFixed(2)}`)
+      ElMessage.success(`入账成功 ${res.inserted} 条，合计 ¥${total.toFixed(2)}`)
     }
     selectedIds.value = new Set()
     clearStakes()
+    pendingItems.value = []
   } catch (e) {
     toastError(e)
   } finally {
@@ -519,7 +585,7 @@ async function submitBatch() {
   }
 }
 
-const debouncedSubmit = useDebounceFn(submitBatch, 300, { maxWait: 800 })
+const debouncedOpenConfirm = useDebounceFn(openConfirmSubmit, 300, { maxWait: 800 })
 
 async function onLogout() {
   try {
@@ -659,6 +725,53 @@ onMounted(async () => {
   margin: 0;
   font-size: 13px;
   line-height: 1.4;
+}
+
+.confirm-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.confirm-meta .win {
+  color: #0f766e;
+}
+
+.confirm-list {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--acc-line);
+  border-radius: 10px;
+  background: #f8faf9;
+}
+
+.confirm-row {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e8efec;
+  font-size: 14px;
+}
+
+.confirm-row:last-child {
+  border-bottom: 0;
+}
+
+.c-name {
+  font-weight: 750;
+  color: var(--acc-brand);
+}
+
+.c-odds {
+  color: #64748b;
+}
+
+.c-stake {
+  font-weight: 700;
 }
 
 .zodiac-odds.custom,
