@@ -61,10 +61,9 @@
         <div v-loading="loadingParams" class="ball-wrap">
           <!-- 特肖：十二生肖 3 列 -->
           <div v-if="isZodiac" class="zodiac-grid">
-            <button
+            <div
               v-for="row in filteredParams"
               :key="row.id"
-              type="button"
               class="zodiac-item"
               :class="{ selected: !oddsMode && selectedIds.has(row.id), 'odds-edit': oddsMode }"
               @click="onItemClick(row)"
@@ -74,14 +73,25 @@
                 {{ formatOdds(row.price) }}
                 <i v-if="oddsMode" class="odds-edit-mark">改</i>
               </span>
-            </button>
+              <input
+                v-if="!oddsMode"
+                class="stake-input"
+                type="number"
+                min="0"
+                step="1"
+                inputmode="decimal"
+                placeholder="金额"
+                :value="stakes[row.id] ?? ''"
+                @click.stop
+                @input="onStakeInput(row.id, $event.target.value)"
+              />
+            </div>
           </div>
           <!-- 特码/平特/平码：号码球 -->
           <div v-else class="ball-grid">
-            <button
+            <div
               v-for="row in filteredParams"
               :key="row.id"
-              type="button"
               class="ball-item"
               :class="[ballColor(row.num), { selected: !oddsMode && selectedIds.has(row.id), 'odds-edit': oddsMode }]"
               @click="onItemClick(row)"
@@ -91,7 +101,19 @@
                 {{ formatOdds(row.price) }}
                 <i v-if="oddsMode" class="odds-edit-mark">改</i>
               </span>
-            </button>
+              <input
+                v-if="!oddsMode"
+                class="stake-input"
+                type="number"
+                min="0"
+                step="1"
+                inputmode="decimal"
+                placeholder="金额"
+                :value="stakes[row.id] ?? ''"
+                @click.stop
+                @input="onStakeInput(row.id, $event.target.value)"
+              />
+            </div>
           </div>
           <el-empty
             v-if="!loadingParams && filteredParams.length === 0"
@@ -105,17 +127,19 @@
     <footer class="dock">
       <div class="acc-shell dock-inner">
         <div class="dock-info">
-          已选 <b>{{ selectedIds.size }}</b> 号
+          已选 <b>{{ selectedIds.size }}</b>
+          <div class="dock-sub">合计 ¥{{ totalStake.toFixed(2) }}</div>
         </div>
         <div class="dock-qty">
-          <span class="acc-muted">统一注数</span>
+          <span class="acc-muted">默认金额</span>
           <el-input-number
             v-model="quantity"
-            :min="0.0001"
+            :min="0.01"
             :step="1"
             :precision="2"
             controls-position="right"
           />
+          <el-button size="small" @click="applyDefaultStake">填入已选</el-button>
         </div>
         <el-button
           type="primary"
@@ -162,7 +186,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDebounceFn } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -200,6 +224,8 @@ const categories = shallowRef([])
 const categoryId = ref(0)
 const params = shallowRef([])
 const selectedIds = shallowRef(new Set())
+/** 每个号码的下注金额 paramId -> string */
+const stakes = reactive({})
 const quantity = ref(1)
 const loadingParams = ref(false)
 const submitting = ref(false)
@@ -238,6 +264,15 @@ const allVisibleSelected = computed(() => {
   return list.every((p) => selectedIds.value.has(p.id))
 })
 
+const totalStake = computed(() => {
+  let sum = 0
+  for (const id of selectedIds.value) {
+    const v = Number(stakes[id])
+    if (Number.isFinite(v) && v > 0) sum += v
+  }
+  return sum
+})
+
 function ballColor(num) {
   if (RED_SET.has(num)) return 'ball-red'
   if (BLUE_SET.has(num)) return 'ball-blue'
@@ -254,20 +289,74 @@ function padNum(n) {
   return String(n).padStart(2, '0')
 }
 
+function clearStakes() {
+  Object.keys(stakes).forEach((k) => {
+    delete stakes[k]
+  })
+}
+
 function toggleRow(id) {
   const next = new Set(selectedIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
+  if (next.has(id)) {
+    next.delete(id)
+    delete stakes[id]
+  } else {
+    next.add(id)
+    if (!stakes[id] || Number(stakes[id]) <= 0) {
+      stakes[id] = String(quantity.value || 1)
+    }
+  }
   selectedIds.value = next
+}
+
+function onStakeInput(id, raw) {
+  const cleaned = String(raw ?? '').replace(/[^\d.]/g, '')
+  if (cleaned === '' || cleaned === '.') {
+    delete stakes[id]
+    if (selectedIds.value.has(id)) {
+      const next = new Set(selectedIds.value)
+      next.delete(id)
+      selectedIds.value = next
+    }
+    return
+  }
+  stakes[id] = cleaned
+  const n = Number(cleaned)
+  if (Number.isFinite(n) && n > 0 && !selectedIds.value.has(id)) {
+    const next = new Set(selectedIds.value)
+    next.add(id)
+    selectedIds.value = next
+  }
+}
+
+function applyDefaultStake() {
+  if (!selectedIds.value.size) {
+    ElMessage.warning('请先选号')
+    return
+  }
+  const val = String(quantity.value || 1)
+  for (const id of selectedIds.value) {
+    stakes[id] = val
+  }
+  ElMessage.success('已填入默认金额')
 }
 
 function toggleAllVisible() {
   const next = new Set(selectedIds.value)
   const list = filteredParams.value
   if (allVisibleSelected.value) {
-    list.forEach((p) => next.delete(p.id))
+    list.forEach((p) => {
+      next.delete(p.id)
+      delete stakes[p.id]
+    })
   } else {
-    list.forEach((p) => next.add(p.id))
+    const val = String(quantity.value || 1)
+    list.forEach((p) => {
+      next.add(p.id)
+      if (!stakes[p.id] || Number(stakes[p.id]) <= 0) {
+        stakes[p.id] = val
+      }
+    })
   }
   selectedIds.value = next
 }
@@ -305,6 +394,7 @@ async function loadParams() {
       }),
     )
     selectedIds.value = new Set()
+    clearStakes()
   } finally {
     loadingParams.value = false
   }
@@ -387,15 +477,20 @@ async function savePrice() {
 async function submitBatch() {
   if (submitting.value) return
   if (!selectedIds.value.size) {
-    ElMessage.warning('请先选号')
-    return
-  }
-  if (!quantity.value || Number(quantity.value) <= 0) {
-    ElMessage.warning('注数必须大于 0')
+    ElMessage.warning('请先选号并填写下注金额')
     return
   }
 
-  const items = [...selectedIds.value].map((param_id) => ({ param_id }))
+  const items = []
+  for (const param_id of selectedIds.value) {
+    const qty = Number(stakes[param_id])
+    if (!Number.isFinite(qty) || qty <= 0) {
+      ElMessage.warning('所选号码需填写大于0的下注金额')
+      return
+    }
+    items.push({ param_id, quantity: String(qty) })
+  }
+
   submitting.value = true
   try {
     const clientReqId =
@@ -404,7 +499,7 @@ async function submitBatch() {
 
     const res = await apiBatchBill({
       category_id: categoryId.value,
-      quantity: String(quantity.value),
+      quantity: '1',
       items,
       client_req_id: clientReqId,
       remark: '',
@@ -413,9 +508,10 @@ async function submitBatch() {
     if (res.mode === 'async') {
       ElMessage.success(`已排队异步入账 ${res.queued} 条`)
     } else {
-      ElMessage.success(`入账成功 ${res.inserted} 条`)
+      ElMessage.success(`入账成功 ${res.inserted} 条，合计 ¥${totalStake.value.toFixed(2)}`)
     }
     selectedIds.value = new Set()
+    clearStakes()
   } catch (e) {
     toastError(e)
   } finally {
@@ -630,6 +726,29 @@ onMounted(async () => {
   line-height: 1;
 }
 
+.stake-input {
+  width: 100%;
+  max-width: 64px;
+  height: 26px;
+  border: 1px solid #d0dde8;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: #0f766e;
+  background: #fff;
+  padding: 0 4px;
+  outline: none;
+}
+
+.stake-input:focus {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+}
+
+.zodiac-item .stake-input {
+  max-width: 72px;
+}
+
 .ball-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -645,9 +764,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
-  max-width: 72px;
+  max-width: 76px;
 }
 
 .ball-circle {
@@ -717,6 +836,12 @@ onMounted(async () => {
 
 .dock-info {
   min-width: 88px;
+}
+
+.dock-sub {
+  font-size: 12px;
+  color: var(--acc-muted);
+  margin-top: 2px;
 }
 
 .dock-qty {
