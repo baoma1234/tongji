@@ -35,8 +35,8 @@
       <section class="acc-card list-card">
         <div class="list-head">
           <div class="section-title">
-            号码 01-49
-            <span class="acc-muted head-tip">已选 {{ selectedIds.size }} · 点球选号</span>
+            {{ isZodiac ? '十二生肖' : '号码 01-49' }}
+            <span class="acc-muted head-tip">已选 {{ selectedIds.size }}</span>
           </div>
           <div class="list-tools">
             <el-button size="small" @click="toggleAllVisible">
@@ -46,7 +46,22 @@
         </div>
 
         <div v-loading="loadingParams" class="ball-wrap">
-          <div class="ball-grid">
+          <!-- 特肖：十二生肖 3 列 -->
+          <div v-if="isZodiac" class="zodiac-grid">
+            <button
+              v-for="row in filteredParams"
+              :key="row.id"
+              type="button"
+              class="zodiac-item"
+              :class="{ selected: selectedIds.has(row.id) }"
+              @click="toggleRow(row.id)"
+            >
+              <span class="zodiac-name">{{ row.name }}</span>
+              <span class="zodiac-odds" @click.stop="openPrice(row)">{{ formatOdds(row.price) }}</span>
+            </button>
+          </div>
+          <!-- 特码/平特/平码：号码球 -->
+          <div v-else class="ball-grid">
             <button
               v-for="row in filteredParams"
               :key="row.id"
@@ -61,7 +76,7 @@
           </div>
           <el-empty
             v-if="!loadingParams && filteredParams.length === 0"
-            description="无号码数据"
+            description="无数据"
             :image-size="72"
           />
         </div>
@@ -98,7 +113,7 @@
 
     <el-dialog v-model="priceVisible" title="设置专属赔率" width="360px">
       <el-form label-position="top">
-        <el-form-item :label="editingRow ? `号码 ${editingRow.label}` : '号码'">
+        <el-form-item :label="editingRow ? (isZodiac ? editingRow.name : `号码 ${editingRow.label}`) : '赔率'">
           <el-input-number
             v-model="editingPrice"
             :min="0"
@@ -135,6 +150,8 @@ import {
 const RED_SET = new Set([1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46])
 const BLUE_SET = new Set([3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48])
 
+const ZODIAC_ORDER = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪']
+
 const categoryOdds = {
   tema: '47',
   texiao: '11',
@@ -160,9 +177,26 @@ const editingRow = shallowRef(null)
 const editingPrice = ref(0)
 const savingPrice = ref(false)
 
+const currentCategory = computed(() =>
+  categories.value.find((c) => Number(c.id) === Number(categoryId.value)) || null,
+)
+
+const isZodiac = computed(() => {
+  const c = currentCategory.value
+  if (!c) return false
+  return c.code === 'texiao' || c.name === '特肖'
+})
+
 const filteredParams = computed(() => {
-  // 按号码 1-49 升序
-  return [...params.value].sort((a, b) => a.num - b.num)
+  const list = [...params.value]
+  if (isZodiac.value) {
+    return list.sort((a, b) => {
+      const ia = ZODIAC_ORDER.indexOf(a.name)
+      const ib = ZODIAC_ORDER.indexOf(b.name)
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+    })
+  }
+  return list.sort((a, b) => a.num - b.num)
 })
 
 const allVisibleSelected = computed(() => {
@@ -444,8 +478,47 @@ onMounted(async () => {
   min-height: 240px;
   border: 1px solid var(--acc-line);
   border-radius: 12px;
-  background: #f5f6f8;
+  background: #f0f1f3;
   padding: 14px 10px 18px;
+}
+
+.zodiac-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 10px;
+}
+
+.zodiac-item {
+  border: 1px solid #7eb6e8;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 0 #c5d8ea;
+  padding: 14px 8px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 72px;
+}
+
+.zodiac-item.selected {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.25);
+  background: #f0fdfa;
+}
+
+.zodiac-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: #334155;
+  line-height: 1.1;
+}
+
+.zodiac-odds {
+  font-size: 15px;
+  color: #a67c52;
+  line-height: 1;
 }
 
 .ball-grid {
