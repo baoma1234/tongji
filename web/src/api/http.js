@@ -92,6 +92,10 @@ export function apiSetPrice(payload) {
   return http.post('/account.price/set', payload)
 }
 
+export function apiBatchSetPrice(payload) {
+  return http.post('/account.price/batchSet', payload)
+}
+
 export function apiBatchBill(payload) {
   return http.post('/account.bill/batch', payload)
 }

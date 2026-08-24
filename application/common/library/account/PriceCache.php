@@ -156,6 +156,64 @@ class PriceCache
     }
 
     /**
+     * 批量设置用户专属价（同一类目），最后只失效一次缓存
+     * @param int   $userId
+     * @param int   $categoryId
+     * @param array $paramIds
+     * @param string $price
+     * @return int
+     */
+    public static function batchSetUserPrice($userId, $categoryId, array $paramIds, $price)
+    {
+        $userId = (int)$userId;
+        $categoryId = (int)$categoryId;
+        $price = (string)$price;
+        $now = time();
+        $paramIds = array_values(array_unique(array_map('intval', $paramIds)));
+        $paramIds = array_filter($paramIds, function ($id) {
+            return $id > 0;
+        });
+        if (!$paramIds) {
+            return 0;
+        }
+
+        $existMap = [];
+        $exists = UserPriceModel::where('user_id', $userId)
+            ->where('param_id', 'in', $paramIds)
+            ->field('id,param_id')
+            ->select();
+        foreach ($exists as $row) {
+            $existMap[(int)$row['param_id']] = (int)$row['id'];
+        }
+
+        $inserts = [];
+        foreach ($paramIds as $paramId) {
+            if (isset($existMap[$paramId])) {
+                UserPriceModel::where('id', $existMap[$paramId])->where('user_id', $userId)->update([
+                    'category_id' => $categoryId,
+                    'price'       => $price,
+                    'updatetime'  => $now,
+                ]);
+            } else {
+                $inserts[] = [
+                    'user_id'     => $userId,
+                    'category_id' => $categoryId,
+                    'param_id'    => $paramId,
+                    'price'       => $price,
+                    'createtime'  => $now,
+                    'updatetime'  => $now,
+                ];
+            }
+        }
+        if ($inserts) {
+            (new UserPriceModel())->saveAll($inserts);
+        }
+
+        self::forgetUserPrices($userId, $categoryId);
+        return count($paramIds);
+    }
+
+    /**
      * @param int $userId
      * @param int $categoryId
      * @param int $paramId

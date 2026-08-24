@@ -47,4 +47,39 @@ class Price extends AccountApi
             'price'       => (string)$price,
         ]);
     }
+
+    /**
+     * 批量设置专属赔率（当前用户 + 类目）
+     * POST category_id, price, param_ids?（空则该类目全部）
+     */
+    public function batchSet()
+    {
+        if (!$this->request->isPost()) {
+            $this->error('请使用 POST');
+        }
+        $userId = $this->auth->id();
+        $categoryId = (int)$this->request->post('category_id', 0);
+        $price = $this->request->post('price', '');
+        $paramIds = $this->request->post('param_ids/a', []);
+
+        if ($categoryId <= 0 || !is_numeric($price) || bccomp((string)$price, '0', 4) < 0) {
+            $this->error('参数错误');
+        }
+
+        $query = ParamModel::where('category_id', $categoryId)->where('status', 1);
+        if ($paramIds) {
+            $query->where('id', 'in', array_map('intval', $paramIds));
+        }
+        $ids = $query->column('id');
+        if (!$ids) {
+            $this->error('无可更新参数');
+        }
+
+        $count = PriceCache::batchSetUserPrice($userId, $categoryId, $ids, (string)$price);
+        $this->success('批量更新成功', [
+            'category_id' => $categoryId,
+            'price'       => (string)$price,
+            'updated'     => $count,
+        ]);
+    }
 }

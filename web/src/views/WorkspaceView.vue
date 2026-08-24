@@ -39,11 +39,23 @@
             <span class="acc-muted head-tip">已选 {{ selectedIds.size }}</span>
           </div>
           <div class="list-tools">
-            <el-button size="small" @click="toggleAllVisible">
+            <el-button
+              size="small"
+              :type="oddsMode ? 'warning' : 'default'"
+              @click="oddsMode = !oddsMode"
+            >
+              {{ oddsMode ? '退出设赔率' : '设置赔率' }}
+            </el-button>
+            <el-button size="small" type="primary" plain @click="openBatchPrice">
+              统一赔率
+            </el-button>
+            <el-button v-if="!oddsMode" size="small" @click="toggleAllVisible">
               {{ allVisibleSelected ? '取消全选' : '全选' }}
             </el-button>
           </div>
         </div>
+
+        <div v-if="oddsMode" class="odds-tip">当前为设赔率模式：点击号码/生肖即可改赔率</div>
 
         <div v-loading="loadingParams" class="ball-wrap">
           <!-- 特肖：十二生肖 3 列 -->
@@ -53,11 +65,14 @@
               :key="row.id"
               type="button"
               class="zodiac-item"
-              :class="{ selected: selectedIds.has(row.id) }"
-              @click="toggleRow(row.id)"
+              :class="{ selected: !oddsMode && selectedIds.has(row.id), 'odds-edit': oddsMode }"
+              @click="onItemClick(row)"
             >
               <span class="zodiac-name">{{ row.name }}</span>
-              <span class="zodiac-odds" @click.stop="openPrice(row)">{{ formatOdds(row.price) }}</span>
+              <span class="zodiac-odds" :class="{ custom: row.is_custom }">
+                {{ formatOdds(row.price) }}
+                <i v-if="oddsMode" class="odds-edit-mark">改</i>
+              </span>
             </button>
           </div>
           <!-- 特码/平特/平码：号码球 -->
@@ -67,11 +82,14 @@
               :key="row.id"
               type="button"
               class="ball-item"
-              :class="[ballColor(row.num), { selected: selectedIds.has(row.id) }]"
-              @click="toggleRow(row.id)"
+              :class="[ballColor(row.num), { selected: !oddsMode && selectedIds.has(row.id), 'odds-edit': oddsMode }]"
+              @click="onItemClick(row)"
             >
               <span class="ball-circle">{{ row.label }}</span>
-              <span class="ball-odds" @click.stop="openPrice(row)">{{ formatOdds(row.price) }}</span>
+              <span class="ball-odds" :class="{ custom: row.is_custom }">
+                {{ formatOdds(row.price) }}
+                <i v-if="oddsMode" class="odds-edit-mark">改</i>
+              </span>
             </button>
           </div>
           <el-empty
@@ -111,9 +129,17 @@
       </div>
     </footer>
 
-    <el-dialog v-model="priceVisible" title="设置专属赔率" width="360px">
+    <el-dialog
+      v-model="priceVisible"
+      :title="batchPriceMode ? '统一设置赔率' : '设置赔率'"
+      width="360px"
+    >
       <el-form label-position="top">
-        <el-form-item :label="editingRow ? (isZodiac ? editingRow.name : `号码 ${editingRow.label}`) : '赔率'">
+        <el-form-item
+          :label="batchPriceMode
+            ? `当前种类「${currentCategory?.name || ''}」全部项目`
+            : (editingRow ? (isZodiac ? editingRow.name : `号码 ${editingRow.label}`) : '赔率')"
+        >
           <el-input-number
             v-model="editingPrice"
             :min="0"
@@ -122,6 +148,9 @@
             style="width: 100%"
           />
         </el-form-item>
+        <p v-if="batchPriceMode" class="dialog-tip acc-muted">
+          将覆盖本种类下全部号码/生肖的专属赔率（仅对你自己生效）
+        </p>
       </el-form>
       <template #footer>
         <el-button @click="priceVisible = false">取消</el-button>
@@ -138,6 +167,7 @@ import { useDebounceFn } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   apiBatchBill,
+  apiBatchSetPrice,
   apiCategories,
   apiLogout,
   apiParams,
@@ -176,6 +206,8 @@ const priceVisible = ref(false)
 const editingRow = shallowRef(null)
 const editingPrice = ref(0)
 const savingPrice = ref(false)
+const oddsMode = ref(false)
+const batchPriceMode = ref(false)
 
 const currentCategory = computed(() =>
   categories.value.find((c) => Number(c.id) === Number(categoryId.value)) || null,
@@ -286,28 +318,64 @@ watch(categoryId, () => {
   loadParams().catch(toastError)
 })
 
+function onItemClick(row) {
+  if (oddsMode.value) {
+    openPrice(row)
+    return
+  }
+  toggleRow(row.id)
+}
+
 function openPrice(row) {
+  batchPriceMode.value = false
   editingRow.value = row
   editingPrice.value = Number(row.price) || 0
   priceVisible.value = true
 }
 
+function openBatchPrice() {
+  if (!categoryId.value || !params.value.length) {
+    ElMessage.warning('请先选择种类')
+    return
+  }
+  batchPriceMode.value = true
+  editingRow.value = null
+  const first = filteredParams.value[0]
+  editingPrice.value =
+    Number(first?.price) || Number(categoryOdds[currentCategory.value?.code] || 0) || 0
+  priceVisible.value = true
+}
+
 async function savePrice() {
-  if (!editingRow.value) return
+  if (!Number.isFinite(Number(editingPrice.value)) || Number(editingPrice.value) < 0) {
+    ElMessage.warning('请输入有效赔率')
+    return
+  }
   savingPrice.value = true
   try {
     const price = String(editingPrice.value)
-    await apiSetPrice({
-      param_id: editingRow.value.id,
-      category_id: categoryId.value,
-      price,
-    })
-    const next = params.value.map((p) =>
-      p.id === editingRow.value.id ? Object.freeze({ ...p, price, is_custom: 1 }) : p,
-    )
-    params.value = Object.freeze(next)
+    if (batchPriceMode.value) {
+      const res = await apiBatchSetPrice({
+        category_id: categoryId.value,
+        price,
+      })
+      const next = params.value.map((p) => Object.freeze({ ...p, price, is_custom: 1 }))
+      params.value = Object.freeze(next)
+      ElMessage.success(`已统一设置 ${res.updated || next.length} 项赔率`)
+    } else {
+      if (!editingRow.value) return
+      await apiSetPrice({
+        param_id: editingRow.value.id,
+        category_id: categoryId.value,
+        price,
+      })
+      const next = params.value.map((p) =>
+        p.id === editingRow.value.id ? Object.freeze({ ...p, price, is_custom: 1 }) : p,
+      )
+      params.value = Object.freeze(next)
+      ElMessage.success('赔率已更新')
+    }
     priceVisible.value = false
-    ElMessage.success('赔率已更新')
   } catch (e) {
     toastError(e)
   } finally {
@@ -472,6 +540,46 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+.list-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.odds-tip {
+  margin: -4px 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 13px;
+}
+
+.dialog-tip {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.zodiac-odds.custom,
+.ball-odds.custom {
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.odds-edit-mark {
+  font-style: normal;
+  margin-left: 4px;
+  font-size: 11px;
+  color: #ea580c;
+}
+
+.zodiac-item.odds-edit,
+.ball-item.odds-edit .ball-circle {
+  outline: 1px dashed rgba(234, 88, 12, 0.45);
 }
 
 .ball-wrap {
