@@ -3,7 +3,7 @@
     <header class="topbar">
       <div class="acc-shell topbar-inner">
         <div>
-          <div class="brand">极简记账</div>
+          <div class="brand">号码统计</div>
           <div class="acc-muted user">{{ user?.nickname || '未命名' }} · {{ user?.access_code }}</div>
         </div>
         <div class="actions">
@@ -15,7 +15,7 @@
 
     <main class="acc-shell">
       <section class="acc-card category-card">
-        <div class="section-title">类目</div>
+        <div class="section-title">统计种类</div>
         <div v-if="categories.length" class="category-scroll">
           <button
             v-for="c in categories"
@@ -25,56 +25,43 @@
             :class="{ active: c.id === categoryId }"
             @click="selectCategory(c.id)"
           >
-            {{ c.name }}
+            <span class="cat-name">{{ c.name }}</span>
+            <span class="cat-odds">赔率 {{ categoryOdds[c.code] ?? categoryOdds[c.name] ?? '-' }}</span>
           </button>
         </div>
-        <el-empty v-else description="暂无类目，请先在后台配置" :image-size="64" />
+        <el-empty v-else description="暂无种类，请先在后台配置" :image-size="64" />
       </section>
 
       <section class="acc-card list-card">
         <div class="list-head">
-          <div class="section-title">参数列表</div>
+          <div class="section-title">
+            号码 01-49
+            <span class="acc-muted head-tip">已选 {{ selectedIds.size }} · 点球选号</span>
+          </div>
           <div class="list-tools">
-            <el-input
-              v-model="keyword"
-              clearable
-              placeholder="筛选名称"
-              style="width: 160px"
-              @input="onFilter"
-            />
-            <el-button @click="toggleAllVisible">{{ allVisibleSelected ? '取消全选' : '全选当前' }}</el-button>
+            <el-button size="small" @click="toggleAllVisible">
+              {{ allVisibleSelected ? '取消全选' : '全选' }}
+            </el-button>
           </div>
         </div>
 
-        <div v-loading="loadingParams" class="virtual-wrap" v-bind="containerProps">
-          <div v-bind="wrapperProps">
-            <div
-              v-for="{ data: row, index } in virtualList"
+        <div v-loading="loadingParams" class="ball-wrap">
+          <div class="ball-grid">
+            <button
+              v-for="row in filteredParams"
               :key="row.id"
-              class="param-row"
-              :class="{ selected: selectedIds.has(row.id) }"
+              type="button"
+              class="ball-item"
+              :class="[ballColor(row.num), { selected: selectedIds.has(row.id) }]"
               @click="toggleRow(row.id)"
             >
-              <el-checkbox
-                :model-value="selectedIds.has(row.id)"
-                @click.stop
-                @change="() => toggleRow(row.id)"
-              />
-              <div class="param-main">
-                <div class="param-name">{{ row.name }}</div>
-                <div class="param-meta acc-muted">
-                  #{{ index + 1 }} · {{ row.unit || '次' }}
-                  <span v-if="row.is_custom" class="tag">专属价</span>
-                </div>
-              </div>
-              <button type="button" class="price-btn" @click.stop="openPrice(row)">
-                ¥{{ formatPrice(row.price) }}
-              </button>
-            </div>
+              <span class="ball-circle">{{ row.label }}</span>
+              <span class="ball-odds" @click.stop="openPrice(row)">{{ formatOdds(row.price) }}</span>
+            </button>
           </div>
           <el-empty
             v-if="!loadingParams && filteredParams.length === 0"
-            description="无匹配参数"
+            description="无号码数据"
             :image-size="72"
           />
         </div>
@@ -84,15 +71,15 @@
     <footer class="dock">
       <div class="acc-shell dock-inner">
         <div class="dock-info">
-          已选 <b>{{ selectedIds.size }}</b> 项
+          已选 <b>{{ selectedIds.size }}</b> 号
         </div>
         <div class="dock-qty">
-          <span class="acc-muted">统一数量</span>
+          <span class="acc-muted">统一注数</span>
           <el-input-number
             v-model="quantity"
             :min="0.0001"
             :step="1"
-            :precision="4"
+            :precision="2"
             controls-position="right"
           />
         </div>
@@ -109,14 +96,14 @@
       </div>
     </footer>
 
-    <el-dialog v-model="priceVisible" title="设置专属单价" width="360px">
+    <el-dialog v-model="priceVisible" title="设置专属赔率" width="360px">
       <el-form label-position="top">
-        <el-form-item :label="editingRow?.name || '参数'">
+        <el-form-item :label="editingRow ? `号码 ${editingRow.label}` : '号码'">
           <el-input-number
             v-model="editingPrice"
             :min="0"
             :precision="4"
-            :step="1"
+            :step="0.01"
             style="width: 100%"
           />
         </el-form-item>
@@ -130,15 +117,9 @@
 </template>
 
 <script setup>
-import {
-  computed,
-  onMounted,
-  ref,
-  shallowRef,
-  watch,
-} from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useDebounceFn, useVirtualList } from '@vueuse/core'
+import { useDebounceFn } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   apiBatchBill,
@@ -150,39 +131,38 @@ import {
   toastError,
 } from '@/api/http'
 
+/** 香港六合彩球色 */
+const RED_SET = new Set([1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46])
+const BLUE_SET = new Set([3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48])
+
+const categoryOdds = {
+  tema: '47',
+  texiao: '11',
+  pingte: '7.8',
+  pingma: '8.07',
+  特码: '47',
+  特肖: '11',
+  平特: '7.8',
+  平码: '8.07',
+}
+
 const router = useRouter()
 const user = shallowRef(getUser())
-
-/** 类目：量小，普通 ref 即可 */
 const categories = shallowRef([])
 const categoryId = ref(0)
-
-/**
- * 参数列表用 shallowRef，避免几十上百项深度代理导致输入/勾选卡顿。
- * 勾选状态单独用 Set + shallowRef，变更时整体替换触发一次渲染。
- */
 const params = shallowRef([])
 const selectedIds = shallowRef(new Set())
-const keyword = ref('')
 const quantity = ref(1)
 const loadingParams = ref(false)
 const submitting = ref(false)
-
 const priceVisible = ref(false)
 const editingRow = shallowRef(null)
 const editingPrice = ref(0)
 const savingPrice = ref(false)
 
 const filteredParams = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  const list = params.value
-  if (!kw) return list
-  return list.filter((p) => String(p.name).toLowerCase().includes(kw))
-})
-
-const { list: virtualList, containerProps, wrapperProps } = useVirtualList(filteredParams, {
-  itemHeight: 64,
-  overscan: 8,
+  // 按号码 1-49 升序
+  return [...params.value].sort((a, b) => a.num - b.num)
 })
 
 const allVisibleSelected = computed(() => {
@@ -191,9 +171,20 @@ const allVisibleSelected = computed(() => {
   return list.every((p) => selectedIds.value.has(p.id))
 })
 
-function formatPrice(v) {
+function ballColor(num) {
+  if (RED_SET.has(num)) return 'ball-red'
+  if (BLUE_SET.has(num)) return 'ball-blue'
+  return 'ball-green'
+}
+
+function formatOdds(v) {
   const n = Number(v)
-  return Number.isFinite(n) ? n.toFixed(2) : '0.00'
+  if (!Number.isFinite(n)) return '0'
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '') || String(n)
+}
+
+function padNum(n) {
+  return String(n).padStart(2, '0')
 }
 
 function toggleRow(id) {
@@ -214,10 +205,6 @@ function toggleAllVisible() {
   selectedIds.value = next
 }
 
-function onFilter() {
-  // keyword 已驱动 computed；此处无需深拷贝 params
-}
-
 async function loadCategories() {
   const data = await apiCategories()
   categories.value = data?.list || []
@@ -234,19 +221,21 @@ async function loadParams() {
   loadingParams.value = true
   try {
     const data = await apiParams(categoryId.value)
-    // 冻结每行对象，进一步降低意外深度响应开销
     params.value = Object.freeze(
-      (data?.list || []).map((row) =>
-        Object.freeze({
+      (data?.list || []).map((row) => {
+        const num = parseInt(String(row.name).replace(/\D/g, ''), 10) || Number(row.id)
+        return Object.freeze({
           id: Number(row.id),
           category_id: Number(row.category_id),
           name: row.name,
+          num,
+          label: padNum(num),
           unit: row.unit,
           default_price: row.default_price,
           price: row.price,
           is_custom: Number(row.is_custom) || 0,
-        }),
-      ),
+        })
+      }),
     )
     selectedIds.value = new Set()
   } finally {
@@ -279,15 +268,12 @@ async function savePrice() {
       category_id: categoryId.value,
       price,
     })
-    // 局部更新：复制数组浅替换一行，避免整表深响应
     const next = params.value.map((p) =>
-      p.id === editingRow.value.id
-        ? Object.freeze({ ...p, price, is_custom: 1 })
-        : p,
+      p.id === editingRow.value.id ? Object.freeze({ ...p, price, is_custom: 1 }) : p,
     )
     params.value = Object.freeze(next)
     priceVisible.value = false
-    ElMessage.success('单价已更新')
+    ElMessage.success('赔率已更新')
   } catch (e) {
     toastError(e)
   } finally {
@@ -298,11 +284,11 @@ async function savePrice() {
 async function submitBatch() {
   if (submitting.value) return
   if (!selectedIds.value.size) {
-    ElMessage.warning('请先勾选参数')
+    ElMessage.warning('请先选号')
     return
   }
   if (!quantity.value || Number(quantity.value) <= 0) {
-    ElMessage.warning('数量必须大于 0')
+    ElMessage.warning('注数必须大于 0')
     return
   }
 
@@ -322,7 +308,7 @@ async function submitBatch() {
     })
 
     if (res.mode === 'async') {
-      ElMessage.success(`已排队异步入账 ${res.queued} 条，批次 ${res.batch_id}`)
+      ElMessage.success(`已排队异步入账 ${res.queued} 条`)
     } else {
       ElMessage.success(`入账成功 ${res.inserted} 条`)
     }
@@ -334,12 +320,11 @@ async function submitBatch() {
   }
 }
 
-/** 防抖：300ms 内连点只提交一次，配合后端 client_req_id 双保险 */
 const debouncedSubmit = useDebounceFn(submitBatch, 300, { maxWait: 800 })
 
 async function onLogout() {
   try {
-    await ElMessageBox.confirm('确定退出当前账本？', '提示', { type: 'warning' })
+    await ElMessageBox.confirm('确定退出？', '提示', { type: 'warning' })
   } catch {
     return
   }
@@ -363,7 +348,7 @@ onMounted(async () => {
   top: 0;
   z-index: 20;
   backdrop-filter: blur(10px);
-  background: rgba(243, 246, 245, 0.88);
+  background: rgba(243, 246, 245, 0.92);
   border-bottom: 1px solid var(--acc-line);
 }
 
@@ -395,6 +380,14 @@ onMounted(async () => {
 .section-title {
   font-weight: 650;
   margin-bottom: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.head-tip {
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .category-scroll {
@@ -408,16 +401,35 @@ onMounted(async () => {
   border: 1px solid var(--acc-line);
   background: #fff;
   color: var(--acc-ink);
-  border-radius: 999px;
-  padding: 8px 14px;
+  border-radius: 12px;
+  padding: 10px 14px;
   white-space: nowrap;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 88px;
+}
+
+.cat-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.cat-odds {
+  font-size: 12px;
+  color: var(--acc-muted);
 }
 
 .cat-chip.active {
   background: var(--acc-brand);
   border-color: var(--acc-brand);
   color: #fff;
+}
+
+.cat-chip.active .cat-odds {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .list-head {
@@ -428,65 +440,78 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
-.list-tools {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.virtual-wrap {
-  height: min(58vh, 560px);
-  overflow: auto;
+.ball-wrap {
+  min-height: 240px;
   border: 1px solid var(--acc-line);
   border-radius: 12px;
-  background: #fbfcfc;
+  background: #f5f6f8;
+  padding: 14px 10px 18px;
 }
 
-.param-row {
-  height: 64px;
+.ball-grid {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 0 14px;
-  border-bottom: 1px solid #e8efec;
-  cursor: pointer;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 8px;
+  justify-items: center;
 }
 
-.param-row.selected {
-  background: rgba(20, 184, 166, 0.1);
-}
-
-.param-name {
-  font-weight: 600;
-}
-
-.param-meta {
-  font-size: 12px;
-  margin-top: 2px;
-}
-
-.tag {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: rgba(15, 118, 110, 0.12);
-  color: var(--acc-brand);
-}
-
-.price-btn {
+.ball-item {
   border: 0;
   background: transparent;
-  color: var(--acc-brand);
-  font-weight: 700;
+  padding: 0;
   cursor: pointer;
-  padding: 6px 8px;
-  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 72px;
 }
 
-.price-btn:hover {
-  background: rgba(15, 118, 110, 0.08);
+.ball-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #334155;
+  background: #fff;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.ball-red .ball-circle {
+  border-color: #e11d48;
+  color: #be123c;
+}
+
+.ball-blue .ball-circle {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.ball-green .ball-circle {
+  border-color: #16a34a;
+  color: #15803d;
+}
+
+.ball-item.selected .ball-circle {
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.28);
+  transform: scale(1.06);
+  background: #ecfdf5;
+}
+
+.ball-odds {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1;
+}
+
+.ball-item.selected .ball-odds {
+  color: var(--acc-brand);
+  font-weight: 650;
 }
 
 .dock {
@@ -541,9 +566,16 @@ onMounted(async () => {
     margin-left: auto;
   }
 
-  .list-head {
-    flex-direction: column;
-    align-items: stretch;
+  .ball-circle {
+    width: 44px;
+    height: 44px;
+    font-size: 16px;
+  }
+}
+
+@media (min-width: 900px) {
+  .ball-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 </style>
